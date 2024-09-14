@@ -45,17 +45,6 @@ enum MiscCrossFactionPVE
     AB_MAP_ID = 529
 };
 
-void TemporaryFactionChange(Player* player)
-{
-    if (Group* group = player->GetGroup())
-    {
-        if (Player* leader = ObjectAccessor::FindPlayer(group->GetLeaderGUID()))
-        {
-            player->SetFaction(leader->GetFaction());
-        }
-    }
-}
-
 class CfPlayerScript : public PlayerScript
 {
 public:
@@ -64,40 +53,51 @@ public:
     // Called when a player enters the world (logs in or teleports)
     void OnLogin(Player* player, bool firstLogin) override
     {
-        switch (player->GetMapId())
-        {
-        case ICC_MAP_ID:
-        case TOCHAMPION_MAP_ID:
-        case TOCRUSADER_MAP_ID:
-        case POS_MAP_ID:
-        case HOR_MAP_ID:
-        case FOS_MAP_ID:
-        case HOS_MAP_ID:
-        case TN_MAP_ID:
-        case WSG_MAP_ID:
-        case AB_MAP_ID:
-            TemporaryFactionChange(player);
-            break;
-        }
+        HandleFactionChange(player, player->GetMapId());
     }
 
     // Called when a player changes zones
     void OnUpdateZone(Player* player, uint32 newZone, uint32 /*newArea*/) override
     {
-        switch (newZone)
+        HandleFactionChange(player, newZone);
+    }
+
+private:
+    // Store the original faction in a map
+    std::unordered_map<uint64, uint32> originalFactionMap;
+
+    void HandleFactionChange(Player* player, uint32 zoneOrMapId)
+    {
+        static const std::set<uint32> zoneSet = {
+            ICC_MAP_ID, TOCHAMPION_MAP_ID, TOCRUSADER_MAP_ID, POS_MAP_ID,
+            HOR_MAP_ID, FOS_MAP_ID, HOS_MAP_ID, TN_MAP_ID, WSG_MAP_ID, AB_MAP_ID
+        };
+
+        if (zoneSet.count(zoneOrMapId))
         {
-        case ZONE_ICECROWN_CITADEL:
-        case ZONE_TRIAL_OF_THE_CHAMPION:
-        case ZONE_TRIAL_OF_THE_CRUSADER:
-        case ZONE_PIT_OF_SARON:
-        case ZONE_HALLS_OF_REFLECTION:
-        case ZONE_FORGE_OF_SOULS:
-        case ZONE_HALLS_OF_STONE:
-        case ZONE_THE_NEXUS:
-        case ZONE_WARSONG_GULCH:
-        case ZONE_ARATHI_BASIN:
-            TemporaryFactionChange(player);
-            break;
+            // Change faction to match the group leader
+            if (Group* group = player->GetGroup())
+            {
+                if (Player* leader = ObjectAccessor::FindPlayer(group->GetLeaderGUID()))
+                {
+                    if (originalFactionMap.find(player->GetGUID()) == originalFactionMap.end())
+                    {
+                        // Store the original faction
+                        originalFactionMap[player->GetGUID()] = player->GetFaction();
+                    }
+                    player->SetFaction(leader->GetFaction());
+                }
+            }
+        }
+        else
+        {
+            // Restore player's original faction
+            auto it = originalFactionMap.find(player->GetGUID());
+            if (it != originalFactionMap.end())
+            {
+                player->SetFaction(it->second);
+                originalFactionMap.erase(it); // Clean up the map after restoring
+            }
         }
     }
 };
