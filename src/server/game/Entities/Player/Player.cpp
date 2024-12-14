@@ -543,7 +543,9 @@ bool Player::Create(ObjectGuid::LowType guidlow, CharacterCreateInfo* createInfo
 
     InitRunes();
 
-    SetMoney(sWorld->getIntConfig(CONFIG_START_PLAYER_MONEY));
+    SetMoney(GetClass() != CLASS_DEATH_KNIGHT
+        ? sWorld->getIntConfig(CONFIG_START_PLAYER_MONEY)
+        : sWorld->getIntConfig(CONFIG_START_DEATH_KNIGHT_PLAYER_MONEY));
     SetHonorPoints(sWorld->getIntConfig(CONFIG_START_HONOR_POINTS));
     SetArenaPoints(sWorld->getIntConfig(CONFIG_START_ARENA_POINTS));
 
@@ -1323,9 +1325,7 @@ void Player::Update(uint32 p_time)
             m_hostileReferenceCheckTimer -= p_time;
     }
 
-    //we should execute delayed teleports only for alive(!) players
-    //because we don't want player's ghost teleported from graveyard
-    if (IsHasDelayedTeleport() && IsAlive())
+    if (IsHasDelayedTeleport())
         TeleportTo(m_teleport_dest, m_teleport_options);
 }
 

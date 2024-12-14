@@ -1377,7 +1377,7 @@ void Spell::SelectImplicitCasterDestTargets(SpellEffectInfo const& spellEffectIn
             float ground = m_caster->GetMapHeight(x, y, z);
             float liquidLevel = VMAP_INVALID_HEIGHT_VALUE;
             LiquidData liquidData;
-            if (m_caster->GetMap()->GetLiquidStatus(m_caster->GetPhaseMask(), x, y, z, MAP_ALL_LIQUIDS, &liquidData, m_caster->GetCollisionHeight()))
+            if (m_caster->GetMap()->GetLiquidStatus(m_caster->GetPhaseMask(), x, y, z, {}, &liquidData, m_caster->GetCollisionHeight()))
                 liquidLevel = liquidData.level;
 
             if (liquidLevel <= ground) // When there is no liquid Map::GetWaterOrGroundLevel returns ground level
@@ -1891,9 +1891,11 @@ WorldObject* Spell::SearchNearbyTarget(float range, SpellTargetObjectTypes objec
     uint32 containerTypeMask = GetSearcherTypeMask(objectType, condList);
     if (!containerTypeMask)
         return nullptr;
+
     Trinity::WorldObjectSpellNearbyTargetCheck check(range, m_caster, m_spellInfo, selectionType, condList);
     Trinity::WorldObjectLastSearcher<Trinity::WorldObjectSpellNearbyTargetCheck> searcher(m_caster, target, check, containerTypeMask);
-    SearchTargets<Trinity::WorldObjectLastSearcher<Trinity::WorldObjectSpellNearbyTargetCheck> > (searcher, containerTypeMask, m_caster, m_caster, range);
+    searcher.i_phaseMask = PHASEMASK_ANYWHERE;
+    SearchTargets<Trinity::WorldObjectLastSearcher<Trinity::WorldObjectSpellNearbyTargetCheck>>(searcher, containerTypeMask, m_caster, m_caster, range);
     return target;
 }
 
@@ -1906,7 +1908,8 @@ void Spell::SearchAreaTargets(std::list<WorldObject*>& targets, float range, Pos
     float extraSearchRadius = range > 0.0f ? EXTRA_CELL_SEARCH_RADIUS : 0.0f;
     Trinity::WorldObjectSpellAreaTargetCheck check(range, position, m_caster, referer, m_spellInfo, selectionType, condList);
     Trinity::WorldObjectListSearcher<Trinity::WorldObjectSpellAreaTargetCheck> searcher(m_caster, targets, check, containerTypeMask);
-    SearchTargets<Trinity::WorldObjectListSearcher<Trinity::WorldObjectSpellAreaTargetCheck> > (searcher, containerTypeMask, m_caster, position, range + extraSearchRadius);
+    searcher.i_phaseMask = PHASEMASK_ANYWHERE;
+    SearchTargets<Trinity::WorldObjectListSearcher<Trinity::WorldObjectSpellAreaTargetCheck>>(searcher, containerTypeMask, m_caster, position, range + extraSearchRadius);
 }
 
 void Spell::SearchChainTargets(std::list<WorldObject*>& targets, uint32 chainTargets, WorldObject* target, SpellTargetObjectTypes objectType, SpellTargetCheckTypes selectType, ConditionContainer* condList, bool isChainHeal)
@@ -6886,9 +6889,19 @@ SpellCastResult Spell::CheckItems(uint32* param1 /*= nullptr*/, uint32* param2 /
                 if (!targetItem)
                     return SPELL_FAILED_ITEM_NOT_FOUND;
 
-                // required level has to be checked also! Exploit fix
-                if (targetItem->GetTemplate()->ItemLevel < m_spellInfo->BaseLevel || (targetItem->GetTemplate()->RequiredLevel && targetItem->GetTemplate()->RequiredLevel < m_spellInfo->BaseLevel))
-                    return SPELL_FAILED_LOWLEVEL;
+                // Apply item level restriction
+                if (!m_spellInfo->HasAttribute(SPELL_ATTR2_ALLOW_LOW_LEVEL_BUFF))
+                {
+                    uint32 requiredLevel = targetItem->GetTemplate()->RequiredLevel;
+                    if (!requiredLevel)
+                        requiredLevel = targetItem->GetTemplate()->ItemLevel;
+
+                    if (requiredLevel < m_spellInfo->BaseLevel)
+                        return SPELL_FAILED_LOWLEVEL;
+                }
+                if (m_CastItem
+                    && m_spellInfo->MaxLevel > 0 && targetItem->GetTemplate()->ItemLevel > m_spellInfo->MaxLevel)
+                    return SPELL_FAILED_HIGHLEVEL;
 
                 bool isItemUsable = false;
                 for (uint8 e = 0; e < MAX_ITEM_PROTO_SPELLS; ++e)
@@ -6956,14 +6969,18 @@ SpellCastResult Spell::CheckItems(uint32* param1 /*= nullptr*/, uint32* param2 /
                         return SPELL_FAILED_NOT_TRADEABLE;
                 }
 
-                // Apply item level restriction if the enchanting spell has max level restrition set
-                if (m_CastItem && m_spellInfo->MaxLevel > 0)
+                // Apply item level restriction
+                if (!m_spellInfo->HasAttribute(SPELL_ATTR2_ALLOW_LOW_LEVEL_BUFF))
                 {
-                    if (item->GetTemplate()->ItemLevel < m_CastItem->GetTemplate()->RequiredLevel)
+                    uint32 requiredLevel = item->GetTemplate()->RequiredLevel;
+                    if (!requiredLevel)
+                        requiredLevel = item->GetTemplate()->ItemLevel;
+
+                    if (requiredLevel < m_spellInfo->BaseLevel)
                         return SPELL_FAILED_LOWLEVEL;
-                    if (item->GetTemplate()->ItemLevel > m_spellInfo->MaxLevel)
-                        return SPELL_FAILED_HIGHLEVEL;
                 }
+                if (m_CastItem && m_spellInfo->MaxLevel > 0 && item->GetTemplate()->ItemLevel > m_spellInfo->MaxLevel)
+                    return SPELL_FAILED_HIGHLEVEL;
                 break;
             }
             case SPELL_EFFECT_ENCHANT_HELD_ITEM:
